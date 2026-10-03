@@ -1,12 +1,29 @@
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.auth import get_current_user
 from src.core.database import get_session
 from src.dto.product import ProductCreate, ProductRead, ProductUpdate
 from src.models import User
 from src.presentation.services import product_service
+from uuid import uuid4
 
 router = APIRouter(prefix="/products", tags=["products"])
+image_types = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
+max_image_size = 5 * 1024 * 1024
 
 
 @router.get("", response_model=list[ProductRead])
@@ -51,3 +68,42 @@ async def delete_product(
 ):
     await product_service.delete_product(session, product_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{product_id}/image", response_model=ProductRead)
+async def upload_product_image(
+    product_id: int,
+    image: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    extension = image_types.get(image.content_type or "")
+    if extension is None:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Unsupported image type",
+        )
+    content = await image.read(max_image_size + 1)
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Image cannot be empty",
+        )
+    if len(content) > max_image_size:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Image must be 5 MB or smaller",
+        )
+    object_name = f"products/{product_id}/{uuid4().hex}{extension}"
+    return await product_service.set_product_image(
+        session, product_id, object_name, content, image.content_type or ""
+    )
+
+
+@router.delete("/{product_id}/image", response_model=ProductRead)
+async def delete_product_image(
+    product_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    return await product_service.remove_product_image(session, product_id)

@@ -10,6 +10,8 @@ from src.core.auth import (
 from src.core.database import get_session
 from src.dto.auth import RefreshTokenRequest, TokenPair
 from src.dto.user import UserCreate, UserRead
+from redis.asyncio import Redis
+from src.core.redis import get_redis
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -28,6 +30,7 @@ async def register(data: UserCreate, session: AsyncSession = Depends(get_session
 async def login(
     data: OAuth2PasswordRequestForm = Depends(),
     session: AsyncSession = Depends(get_session),
+    redis_client: Redis = Depends(get_redis),
 ):
     user = await authenticate_user(session, data.username, data.password)
     if user is None:
@@ -36,12 +39,14 @@ async def login(
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return create_token_pair(user.id)
+    return await create_token_pair(user.id, redis_client)
 
 
 @router.post("/refresh", response_model=TokenPair)
 async def refresh_tokens(
-    data: RefreshTokenRequest, session: AsyncSession = Depends(get_session)
+    data: RefreshTokenRequest,
+    session: AsyncSession = Depends(get_session),
+    redis_client: Redis = Depends(get_redis),
 ):
-    user = await get_user_from_refresh_token(session, data.refresh_token)
-    return create_token_pair(user.id)
+    user = await get_user_from_refresh_token(session, data.refresh_token, redis_client)
+    return await create_token_pair(user.id, redis_client)
