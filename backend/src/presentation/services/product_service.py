@@ -3,6 +3,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.dto.product import ProductCreate, ProductUpdate
 from src.models import Category, Product
+from src.core.storage import delete_object, upload_object
+import asyncio
 
 
 async def list_products(
@@ -66,5 +68,42 @@ async def update_product(
 
 async def delete_product(session: AsyncSession, product_id: int) -> None:
     product = await get_product(session, product_id)
+    if product.image_object_name is not None:
+        await asyncio.to_thread(delete_object, product.image_object_name)
     await session.delete(product)
     await session.commit()
+
+
+async def set_product_image(
+    session: AsyncSession,
+    product_id: int,
+    object_name: str,
+    content: bytes,
+    content_type: str,
+) -> Product:
+    product = await get_product(session, product_id)
+    previous_object_name = product.image_object_name
+    await asyncio.to_thread(upload_object, object_name, content, content_type)
+    product.image_object_name = object_name
+    try:
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        await asyncio.to_thread(delete_object, object_name)
+        raise
+    await session.refresh(product)
+    if previous_object_name is not None:
+        await asyncio.to_thread(delete_object, previous_object_name)
+    return product
+
+
+async def remove_product_image(session: AsyncSession, product_id: int) -> Product:
+    product = await get_product(session, product_id)
+    object_name = product.image_object_name
+    if object_name is None:
+        return product
+    product.image_object_name = None
+    await session.commit()
+    await session.refresh(product)
+    await asyncio.to_thread(delete_object, object_name)
+    return product
