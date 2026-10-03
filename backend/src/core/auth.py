@@ -6,9 +6,10 @@ from pwdlib.exceptions import UnknownHashError
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.models import User
-from typing import Any
+from sqlalchemy.exc import IntegrityError
 from src.core.database import get_session
 from src.core.settings import settings
+from typing import Any
 import jwt
 
 password_hasher = PasswordHash.recommended()
@@ -117,7 +118,14 @@ async def register_user(
         password_hash=hash_password(password),
     )
     session.add(user)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Username or email is already registered",
+        ) from exc
     await session.refresh(user)
     return user
 
