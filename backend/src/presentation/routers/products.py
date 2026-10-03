@@ -9,7 +9,6 @@ from fastapi import (
     status,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi.responses import RedirectResponse
 from src.core.auth import get_current_user
 from src.core.database import get_session
 from src.dto.product import ProductCreate, ProductRead, ProductUpdate
@@ -46,8 +45,12 @@ async def read_product(product_id: int, session: AsyncSession = Depends(get_sess
 async def read_product_image(
     product_id: int, session: AsyncSession = Depends(get_session)
 ):
-    image_url = await product_service.get_product_image_url(session, product_id)
-    return RedirectResponse(image_url)
+    content, content_type = await product_service.get_product_image(session, product_id)
+    return Response(
+        content=content,
+        media_type=content_type,
+        headers={"Cache-Control": "public, max-age=1800"},
+    )
 
 
 @router.post("", response_model=ProductRead, status_code=status.HTTP_201_CREATED)

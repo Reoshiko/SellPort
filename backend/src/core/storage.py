@@ -42,9 +42,8 @@ def delete_object(object_name: str) -> None:
     s3_client.delete_object(Bucket=settings.s3_bucket_name, Key=object_name)
 
 
-def create_presigned_get_url(object_name: str) -> str:
-    return s3_client.generate_presigned_url(
-        "get_object",
-        Params={"Bucket": settings.s3_bucket_name, "Key": object_name},
-        ExpiresIn=1800,
+def download_object(object_name: str) -> tuple[bytes, str]:
+    response = s3_client.get_object(Bucket=settings.s3_bucket_name, Key=object_name)
+    return response["Body"].read(), response.get(
+        "ContentType", "application/octet-stream"
     )
