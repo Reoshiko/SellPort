@@ -40,3 +40,11 @@ def upload_object(object_name: str, content: bytes, content_type: str) -> None:
 
 def delete_object(object_name: str) -> None:
     s3_client.delete_object(Bucket=settings.s3_bucket_name, Key=object_name)
+
+
+def create_presigned_get_url(object_name: str) -> str:
+    return s3_client.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": settings.s3_bucket_name, "Key": object_name},
+        ExpiresIn=1800,
+    )

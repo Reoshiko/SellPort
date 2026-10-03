@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.dto.product import ProductCreate, ProductUpdate
 from src.models import Category, Product
-from src.core.storage import delete_object, upload_object
+from src.core.storage import create_presigned_get_url, delete_object, upload_object
 import asyncio
 
 
@@ -107,3 +107,12 @@ async def remove_product_image(session: AsyncSession, product_id: int) -> Produc
     await session.refresh(product)
     await asyncio.to_thread(delete_object, object_name)
     return product
+
+
+async def get_product_image_url(session: AsyncSession, product_id: int) -> str:
+    product = await get_product(session, product_id)
+    if product.image_object_name is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Product image not found"
+        )
+    return await asyncio.to_thread(create_presigned_get_url, product.image_object_name)
