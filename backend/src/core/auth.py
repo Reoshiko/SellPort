@@ -10,6 +10,8 @@ from sqlalchemy.exc import IntegrityError
 from src.core.database import get_session
 from src.core.settings import settings
 from typing import Any
+from redis.asyncio import Redis
+from uuid import uuid4
 import jwt
 
 password_hasher = PasswordHash.recommended()
@@ -35,6 +37,8 @@ def create_token(user_id: int, token_type: str, expires_delta: timedelta) -> str
         "iat": now,
         "exp": now + expires_delta,
     }
+    if token_type == "refresh":
+        payload["jti"] = uuid4().hex
     return jwt.encode(
         payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
     )
@@ -56,10 +60,16 @@ def create_refresh_token(user_id: int) -> str:
     )
 
 
-def create_token_pair(user_id: int) -> dict[str, str]:
+async def create_token_pair(user_id: int, redis_client: Redis) -> dict[str, str]:
+    refresh_token = create_refresh_token(user_id)
+    refresh_payload = decode_token(refresh_token, expected_type="refresh")
+    expires_in = settings.jwt_refresh_token_expire_days * 24 * 60 * 60
+    await redis_client.set(
+        f"auth:refresh:{refresh_payload['jti']}", str(user_id), ex=expires_in
+    )
     return {
         "access_token": create_access_token(user_id),
-        "refresh_token": create_refresh_token(user_id),
+        "refresh_token": refresh_token,
         "token_type": "bearer",
     }
 
@@ -75,7 +85,12 @@ def decode_token(token: str, expected_type: str = "access") -> dict[str, Any]:
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
-    if payload.get("type") != expected_type or not payload.get("sub", "").isdigit():
+    subject = payload.get("sub")
+    if (
+        payload.get("type") != expected_type
+        or not isinstance(subject, str)
+        or not subject.isdigit()
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",
@@ -145,8 +160,24 @@ async def get_current_user(
     return user
 
 
-async def get_user_from_refresh_token(session: AsyncSession, token: str) -> User:
+async def get_user_from_refresh_token(
+    session: AsyncSession, token: str, redis_client: Redis
+) -> User:
     payload = decode_token(token, expected_type="refresh")
+    token_id = payload.get("jti")
+    if not isinstance(token_id, str):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    stored_user_id = await redis_client.getdel(f"auth:refresh:{token_id}")
+    if stored_user_id != payload["sub"]:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or revoked refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     user = await get_user_by_id(session, int(payload["sub"]))
     if user is None:
         raise HTTPException(
