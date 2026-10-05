@@ -26,3 +26,20 @@ export type CartLine = {
   product_id: number
   quantity: number
 }
+
+export type UserProfile = {
+  id: number
+  username: string
+  email: string
+  created_at: string
+}
+
+export type OrderStatus = 'pending' | 'paid' | 'shipped' | 'delivered' | 'cancelled'
+
+export type Order = {
+  id: number
+  user_id: number
+  status: OrderStatus
+  total_price: number | string
+  created_at: string
+}

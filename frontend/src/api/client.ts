@@ -4,10 +4,11 @@ import type { TokenPair } from '../types/catalog'
 
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL ?? '/api',
-  headers: {
-    'Content-Type': 'application/json',
-  },
 })
+
+export function getProductImageUrl(productId: number) {
+  return `${api.defaults.baseURL?.replace(/\/$/, '') ?? '/api'}/products/${productId}/image`
+}
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('sellport_access_token')
